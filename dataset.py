@@ -10,10 +10,11 @@ from PIL import Image
 
 # datasets for ACE20k sky segmentation
 class ACE20kSkyDataset(Dataset):
-    def __init__(self, root_dir, split='train', img_size=(480, 640)):
+    def __init__(self, root_dir, split='train', img_size=(480, 640), sky_label=3):
         self.root_dir = root_dir
         self.split = split
         self.img_size = img_size
+        self.sky_label = sky_label
 
         split_dict = {"train": "training", "val": "validation"}
         self.image_dir = os.path.join(root_dir, "images", split_dict[split])
@@ -27,6 +28,7 @@ class ACE20kSkyDataset(Dataset):
             transforms.ToTensor(),
         ])
 
+        
         self.mask_transform = transforms.Compose([
             transforms.Resize(img_size, interpolation=Image.Resampling.NEAREST),
             transforms.ToTensor(),
@@ -52,13 +54,15 @@ class ACE20kSkyDataset(Dataset):
         mask_path = os.path.join(self.mask_dir, mask_name)
 
         image = Image.open(image_path).convert("RGB")
-        mask = Image.open(mask_path).convert("L")
+        mask = Image.open(mask_path)
         
         image = self.image_transform(image)
         if self.augment:
             image = self.augment(image)
 
         mask = self.mask_transform(mask).squeeze(0).long()
+        # convert the mask to a binary mask, set mask==3 to 1 and others to 0
+        mask = (mask == self.sky_label).long()
 
         return image, mask
 

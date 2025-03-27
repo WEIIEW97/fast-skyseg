@@ -39,6 +39,21 @@ skyseg_config = SkysegConfig()
 
 wandb.init(project=skyseg_config.project, entity=skyseg_config.entity, name=skyseg_config.run_name)
 
+def mIoU(pred:torch.Tensor, target:torch.Tensor, num_classes:int):
+    ious = []
+    pred = pred.view(-1)
+    target = target.view(-1)
+    for cls in range(num_classes):
+        pred_inds = pred == cls
+        target_inds = target == cls
+        intersection = (pred_inds[target_inds]).long().sum().item()
+        union = pred_inds.long().sum().item() + target_inds.long().sum().item() - intersection
+        if union == 0:
+            ious.append(float('nan'))
+        else:
+            ious.append(float(intersection) / float(max(union, 1)))
+    return np.nanmean(ious)
+   
 
 class Trainer:
     def __init__(self, config):
@@ -80,6 +95,7 @@ class Trainer:
             for i, (images, masks) in enumerate(self.val_loader):
                 images, masks = images.to(self.device), masks.to(self.device)
                 outputs = self.model(images)
+                
                 loss = self.criterion(outputs, masks)
                 running_loss += loss.item()
             wandb.log({"val_loss": running_loss / len(self.val_loader)})

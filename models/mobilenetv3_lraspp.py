@@ -126,8 +126,11 @@ if __name__ == "__main__":
     num_classes = 2
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = lraspp_mobilenet_v3_large(num_classes)
+    model.eval()
     model.to(device)
     dummy_input = torch.randn(1, 3, 480, 640)
     dummy_input = dummy_input.to(device)
-    output = model(dummy_input)
+    with torch.no_grad():
+        output = model(dummy_input)
     print(output.shape)
+    print(output[:2, :4])
