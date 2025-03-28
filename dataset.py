@@ -55,14 +55,14 @@ class ACE20kSkyDataset(Dataset):
 
         image = Image.open(image_path).convert("RGB")
         mask = Image.open(mask_path)
-        
+        # convert the mask to a binary mask, set mask==3 to 1 and others to 0
+        binary_mask = np.array(mask) == self.sky_label
+        binary_mask = Image.fromarray(binary_mask)
         image = self.image_transform(image)
         if self.augment:
             image = self.augment(image)
 
-        mask = self.mask_transform(mask).squeeze(0).long()
-        # convert the mask to a binary mask, set mask==3 to 1 and others to 0
-        mask = (mask == self.sky_label).long()
+        mask = self.mask_transform(binary_mask).squeeze(0).long()
 
         return image, mask
 
