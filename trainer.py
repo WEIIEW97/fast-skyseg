@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import torch.distributed as dist
 
 import os
 import numpy as np
@@ -11,13 +12,17 @@ import time
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from models.mobilenetv3_lraspp import lraspp_mobilenet_v3_large
-from dataset import get_dataloader
+from dataset import get_dataloader, get_ddp_dataloader
 from dataclasses import dataclass
-
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.distributed import init_process_group, get_rank, get_world_size, destroy_process_group
 @dataclass
 class SkysegConfig:
     # device
     device: str = "cuda"
+    # ddp
+    dicstraibuted: bool = False
+    backend: str = "nccl"
     # data
     data_dir: str = "/home/william/extdisk/data/ACE20k/ACE20k_sky"
     save_dir: str = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models"
@@ -60,16 +65,33 @@ def mIoU(preds:torch.Tensor, targets:torch.Tensor, num_classes:int):
 class Trainer:
     def __init__(self, config: SkysegConfig):
         self.config = config
-        self.device = config.device
         self.model = lraspp_mobilenet_v3_large(num_classes=config.num_classes).to(self.device)
         self.optimizer = optim.AdamW(self.model.parameters(), lr=config.lr)
         self.criterion = nn.CrossEntropyLoss()
-        self.train_loader, self.val_loader = get_dataloader(config.data_dir, config.batch_size, config.num_workers, config.pin_memory)
         self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=config.T_0[0], T_mult=config.T_mult[0], eta_min=config.eta_min[0])
         # wandb.watch(self.model, log='all')
         self.best_val_loss = float('inf')
         self.best_val_iou = 0.0
-        self.writer = SummaryWriter(log_dir=config.log_dir)
+        self.distributed = config.distributed
+        if self.distributed:
+            self.rank = int(os.environ['RANK'])
+            self.local_rank = int(os.environ['LOCAL_RANK'])
+            self.world_size = int(os.environ['WORLD_SIZE'])
+            self.device = f'cuda:{self.local_rank}'
+            torch.cuda.set_device(self.device)
+            dist.init_process_group(backend=config.backend)  # Use NCCL for GPU communication
+        else:
+            self.device = config.device
+
+        if self.distributed:
+            self.train_loader, self.val_loader = get_ddp_dataloader(config.data_dir, self.world_size, self.rank, config.batch_size, config.num_workers, config.pin_memory)
+        else:
+            self.train_loader, self.val_loader = get_dataloader(config.data_dir, config.batch_size, config.num_workers, config.pin_memory)
+
+        if self.distributed:
+            self.model = DDP(self.model, device_ids=[self.local_rank], output_device=self.local_rank)
+        
+        self.writer = SummaryWriter(log_dir=config.log_dir) if self.rank == 0 else None
 
         os.makedirs(self.config.save_dir, exist_ok=True)
         os.makedirs(self.config.log_dir, exist_ok=True)
@@ -79,10 +101,13 @@ class Trainer:
         for epoch in tqdm(range(self.config.num_epochs)):
             # recording time
             start_time = time.time()
+            if self.distributed:
+                self.train_loader.sampler.set_epoch(epoch)
+
             self._train_epoch(epoch)
             val_iou = self._val_epoch(epoch)
 
-            if val_iou > self.best_val_iou:
+            if self.rank == 0 and val_iou > self.best_val_iou:
                 self.save_model()
                 self.best_val_iou = val_iou
                 print(f"New best model saved with IoU: {val_iou:.4f}")
@@ -100,13 +125,16 @@ class Trainer:
             # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
             self.optimizer.step()
             running_loss += loss.item()
-            if i % 10 == 9:
-                # wandb.log({"train_loss": running_loss / 10})
-                self.writer.add_scalar("Train/Loss", running_loss / 10, epoch * len(self.train_loader) + i)
-                print(f"Epoch {epoch + 1}, Iter {i + 1}, Loss: {running_loss / 10}")
-                running_loss = 0.0
-        
-        self.writer.add_scalar("LR", self.optimizer.param_groups[0]['lr'], epoch)
+
+            if self.rank == 0:
+                running_loss += loss.item()
+                if i % 10 == 9:
+                    # wandb.log({"train_loss": running_loss / 10})
+                    self.writer.add_scalar("Train/Loss", running_loss / 10, epoch * len(self.train_loader) + i)
+                    print(f"Epoch {epoch + 1}, Iter {i + 1}, Loss: {running_loss / 10}")
+                    running_loss = 0.0
+        if self.rank == 0:
+            self.writer.add_scalar("LR", self.optimizer.param_groups[0]['lr'], epoch)
         self.scheduler.step()
 
     def _val_epoch(self, epoch):
@@ -126,12 +154,15 @@ class Trainer:
                 batch_iou = mIoU(preds, masks, self.config.num_classes)
                 total_iou += batch_iou
 
-                if epoch == 0 or epoch % 5 == 4:  # Every 5 epochs
+                if self.ranl == 0 and epoch == 0 or epoch % 5 == 4:  # Every 5 epochs
                     self.writer.add_images("val/input", images[:3], epoch)
                     self.writer.add_images("val/pred", preds[:3].unsqueeze(1).float(), epoch)  # Add channel dim
                     self.writer.add_images("val/target", masks[:3].unsqueeze(1).float(), epoch)
 
-            
+        if self.distributed:
+            dist.all_reduce(total_iou, op=dist.ReduceOp.SUM)
+            total_iou = total_iou / self.world_size
+        
         mean_loss = total_loss / len(self.val_loader)
         mean_iou = total_iou / len(self.val_loader)
         # wandb.log({
@@ -139,17 +170,20 @@ class Trainer:
         #     "val_iou": mean_iou,
         #     "lr": self.optimizer.param_groups[0]['lr']
         # })
-        self.writer.add_scalar("val/loss", mean_loss, epoch)
-        self.writer.add_scalar("val/IoU", mean_iou, epoch)
-        print(f"Epoch {epoch + 1}, Val Loss: {mean_loss:.4f}, IoU: {mean_iou:.4f}")
+        if self.rank == 0:
+            self.writer.add_scalar("val/loss", mean_loss, epoch)
+            self.writer.add_scalar("val/IoU", mean_iou, epoch)
+            print(f"Epoch {epoch + 1}, Val Loss: {mean_loss:.4f}, IoU: {mean_iou:.4f}")
         return mean_iou
 
     def save_model(self):
-        save_path = os.path.join(self.config.save_dir, f"skyseg_mobilenetv3_lraspp_{self.config.num_epochs}_iou_{self.best_val_iou:.4f}.pth")
-        torch.save(self.model.state_dict(), save_path)
-        print(f"Model saved to {save_path}")
+        if self.rank == 0:
+            save_path = os.path.join(self.config.save_dir, f"skyseg_mobilenetv3_lraspp_{self.config.num_epochs}_iou_{self.best_val_iou:.4f}.pth")
+            torch.save(self.model.state_dict(), save_path)
+            print(f"Model saved to {save_path}")
 
     def close(self):
-        self.writer.close()
-
-
+        if self.rank == 0 and self.writer is not None:
+            self.writer.close()
+        if self.distributed:
+            dist.destroy_process_group()

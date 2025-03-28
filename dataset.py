@@ -3,6 +3,7 @@ import os
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data.distributed import DistributedSampler
 
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
@@ -73,5 +74,18 @@ def get_dataloader(root_dir, batch_size=8, num_workers=8, pin_memory=True):
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, pin_memory=pin_memory)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, pin_memory=pin_memory)
+
+    return train_loader, val_loader
+
+
+def get_ddp_dataloader(root_dir, world_size, rank, batch_size=8, num_workers=8, pin_memory=True):
+    train_dataset = ACE20kSkyDataset(root_dir, split='train')
+    val_dataset = ACE20kSkyDataset(root_dir, split='val')
+
+    train_sampler = DistributedSampler(train_dataset, num_replicas=world_size, rank=rank)
+    val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=train_sampler, num_workers=num_workers, pin_memory=pin_memory, shuffle=False)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, sampler=val_sampler, num_workers=num_workers, pin_memory=pin_memory, shuffle=False)
 
     return train_loader, val_loader
