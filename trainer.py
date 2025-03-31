@@ -8,6 +8,7 @@ import os
 import numpy as np
 import wandb
 import time
+import datetime
 
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -21,20 +22,20 @@ class SkysegConfig:
     # device
     device: str = "cuda"
     # ddp
-    dicstraibuted: bool = False
+    distributed: bool = True
     backend: str = "nccl"
     # data
     data_dir: str = "/home/william/extdisk/data/ACE20k/ACE20k_sky"
     save_dir: str = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models"
     log_dir: str = "/home/william/extdisk/data/ACE20k/ACE20k_sky/logs"
-    batch_size: int = 8
+    batch_size: int = 16
     img_size: tuple = (480, 640)
     num_workers: int = 8
     pin_memory: bool = True
     # model
     num_classes: int = 2
     lr: float = 1e-4
-    num_epochs: int = 100
+    num_epochs: int = 30
     save_dir: str = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models"
     # scheduler
     # cosine annealing warm restarts
@@ -46,7 +47,7 @@ class SkysegConfig:
     entity: str = "weiiew"
     run_name: str = "skyseg_mobilenetv3_lraspp"
 
-skyseg_config = SkysegConfig()
+# skyseg_config = SkysegConfig()
 
 # wandb.init(project=skyseg_config.project, entity=skyseg_config.entity, name=skyseg_config.run_name)
 
@@ -65,7 +66,7 @@ def mIoU(preds:torch.Tensor, targets:torch.Tensor, num_classes:int):
 class Trainer:
     def __init__(self, config: SkysegConfig):
         self.config = config
-        self.model = lraspp_mobilenet_v3_large(num_classes=config.num_classes).to(self.device)
+        self.model = lraspp_mobilenet_v3_large(num_classes=config.num_classes)
         self.optimizer = optim.AdamW(self.model.parameters(), lr=config.lr)
         self.criterion = nn.CrossEntropyLoss()
         self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer, T_0=config.T_0[0], T_mult=config.T_mult[0], eta_min=config.eta_min[0])
@@ -80,6 +81,9 @@ class Trainer:
             self.device = f'cuda:{self.local_rank}'
             torch.cuda.set_device(self.device)
             dist.init_process_group(backend=config.backend)  # Use NCCL for GPU communication
+            print("RANK:", os.environ.get("RANK"))          # Global process ID
+            print("LOCAL_RANK:", os.environ.get("LOCAL_RANK"))  # GPU index per machine
+            print("WORLD_SIZE:", os.environ.get("WORLD_SIZE"))  # Total processes
         else:
             self.device = config.device
 
@@ -89,16 +93,27 @@ class Trainer:
             self.train_loader, self.val_loader = get_dataloader(config.data_dir, config.batch_size, config.num_workers, config.pin_memory)
 
         if self.distributed:
+            self.model = self.model.to(self.local_rank)
+            self.criterion = self.criterion.to(self.local_rank)
             self.model = DDP(self.model, device_ids=[self.local_rank], output_device=self.local_rank)
+        else:
+            self.model = self.model.to(self.device)
+            self.criterion = self.criterion.to(self.device)
         
-        self.writer = SummaryWriter(log_dir=config.log_dir) if self.rank == 0 else None
+        # get the time for now
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        self.save_dir = os.path.join(self.config.save_dir, f"run_{timestamp}")
+        self.log_dir = os.path.join(self.config.log_dir, f"log_{timestamp}")
+        os.makedirs(self.save_dir, exist_ok=True)
+        os.makedirs(self.log_dir, exist_ok=True)
 
-        os.makedirs(self.config.save_dir, exist_ok=True)
-        os.makedirs(self.config.log_dir, exist_ok=True)
+        self.writer = SummaryWriter(log_dir=self.log_dir) if self.rank == 0 else None
 
     def train(self):
         self.model.train()
         for epoch in tqdm(range(self.config.num_epochs)):
+            self.n_iters = epoch
             # recording time
             start_time = time.time()
             if self.distributed:
@@ -139,7 +154,10 @@ class Trainer:
 
     def _val_epoch(self, epoch):
         self.model.eval()
-        total_iou = 0.0
+        if self.distributed:
+            total_iou = torch.tensor(0.0).to(self.local_rank)
+        else:
+            total_iou = 0.0
         total_loss = 0.0
 
         with torch.no_grad():
@@ -154,10 +172,11 @@ class Trainer:
                 batch_iou = mIoU(preds, masks, self.config.num_classes)
                 total_iou += batch_iou
 
-                if self.ranl == 0 and epoch == 0 or epoch % 5 == 4:  # Every 5 epochs
-                    self.writer.add_images("val/input", images[:3], epoch)
-                    self.writer.add_images("val/pred", preds[:3].unsqueeze(1).float(), epoch)  # Add channel dim
-                    self.writer.add_images("val/target", masks[:3].unsqueeze(1).float(), epoch)
+                if self.rank == 0 and (epoch == 0 or epoch % 5 == 4):  # Every 5 epochs
+                    if self.writer is not None:
+                        self.writer.add_images("val/input", images[:3], epoch)
+                        self.writer.add_images("val/pred", preds[:3].unsqueeze(1).float(), epoch)  # Add channel dim
+                        self.writer.add_images("val/target", masks[:3].unsqueeze(1).float(), epoch)
 
         if self.distributed:
             dist.all_reduce(total_iou, op=dist.ReduceOp.SUM)
@@ -178,7 +197,7 @@ class Trainer:
 
     def save_model(self):
         if self.rank == 0:
-            save_path = os.path.join(self.config.save_dir, f"skyseg_mobilenetv3_lraspp_{self.config.num_epochs}_iou_{self.best_val_iou:.4f}.pth")
+            save_path = os.path.join(self.save_dir, f"skyseg_mobilenetv3_lraspp_{self.n_iters}_iou_{self.best_val_iou:.4f}.pth")
             torch.save(self.model.state_dict(), save_path)
             print(f"Model saved to {save_path}")
 
