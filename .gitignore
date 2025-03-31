@@ -6,6 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
+# C binaries
+build
+cmake-build-debug
+cmake-build-release
+
 # All notebooks
 *.ipynb
 

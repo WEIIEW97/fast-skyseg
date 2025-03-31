@@ -13,6 +13,7 @@ import datetime
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from models.mobilenetv3_lraspp import lraspp_mobilenet_v3_large
+from models.egeunet import egeunet
 from dataset import get_dataloader, get_ddp_dataloader
 from dataclasses import dataclass
 from torch.nn.parallel import DistributedDataParallel as DDP
