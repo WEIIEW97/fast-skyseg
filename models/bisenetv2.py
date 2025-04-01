@@ -433,9 +433,15 @@ class BiSeNetV2(nn.Module):
         return wd_params, nowd_params, lr_mul_wd_params, lr_mul_nowd_params
 
 
+def bisenetv2(num_classes: int, aux_mode: str):
+    assert aux_mode in ["train", "eval", "pred"]
+    model = BiSeNetV2(n_classes=num_classes, aux_mode=aux_mode)
+    return model
+
+
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    x = torch.randn(2, 3, 480, 640).to(device) # qa: batch size should greater than 1?
+    x = torch.randn(2, 3, 480, 640).to(device)  # qa: batch size should greater than 1?
     model = BiSeNetV2(n_classes=2).to(device)
     outs = model(x)
     for out in outs:

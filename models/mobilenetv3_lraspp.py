@@ -87,7 +87,7 @@ def _lraspp_mobilenetv3(backbone: MobileNetV3, num_classes: int) -> LRASPP:
 
 
 def lraspp_mobilenet_v3_large(
-    num_classes: int = 2,
+    num_classes: int = 2
 ) -> LRASPP:
     """Constructs a Lite R-ASPP Network model with a MobileNetV3-Large backbone from
     `Searching for MobileNetV3 <https://arxiv.org/abs/1905.02244>`_ paper.
@@ -125,9 +125,10 @@ def lraspp_mobilenet_v3_large(
 if __name__ == "__main__":
     num_classes = 2
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = lraspp_mobilenet_v3_large(num_classes)
+    model = lraspp_mobilenet_v3_large(num_classes, device)
+    model = model.to(device)
     model.eval()
-    model.to(device)
+    # model.to(device)
     dummy_input = torch.randn(1, 3, 480, 640)
     dummy_input = dummy_input.to(device)
     with torch.no_grad():

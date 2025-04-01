@@ -13,7 +13,9 @@ import datetime
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from models.mobilenetv3_lraspp import lraspp_mobilenet_v3_large
-from models.egeunet import egeunet
+from models.bisenetv2 import bisenetv2
+from models.fast_scnn import fast_scnn
+from models.u2net import u2net
 from dataset import get_dataloader, get_ddp_dataloader
 from dataclasses import dataclass
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -27,6 +29,8 @@ from torch.distributed import (
 
 @dataclass
 class SkysegConfig:
+    # model
+    model: str = "lraspp_mobilenet_v3_large"
     # device
     device: str = "cuda"
     # ddp
@@ -43,6 +47,8 @@ class SkysegConfig:
     # model
     num_classes: int = 2
     lr: float = 1e-4
+    aux: str = "train" # must be in ['train', 'eval', 'pred']
+    u2net_type: str = "full" # must be in ['full', 'lite']
     num_epochs: int = 30
     save_dir: str = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models"
     # scheduler
@@ -73,10 +79,29 @@ def mIoU(preds: torch.Tensor, targets: torch.Tensor, num_classes: int):
     return torch.mean(torch.tensor(ious))  # Mean IoU
 
 
+def get_model(config: SkysegConfig):
+    model_name = config.model
+    
+    if model_name == "lraspp_mobilenet_v3_large":
+        model = lraspp_mobilenet_v3_large(num_classes=config.num_classes)
+    elif model_name == "fast_scnn":
+        _train_flag = True if config.aux == "train" else False
+        model = fast_scnn(num_classes=config.num_classes, aux=_train_flag)
+    elif model_name == "bisenetv2":
+        model = bisenetv2(num_classes=config.num_classes, aux_mode=config.aux)
+    elif model_name == "u2net":
+        model = u2net(num_classes=config.num_classes, model_type=config.u2net_type)
+    else:
+        raise ValueError(f"unsupported model backend type! : {model_name}")
+    
+    return model
+
 class Trainer:
     def __init__(self, config: SkysegConfig):
         self.config = config
-        self.model = lraspp_mobilenet_v3_large(num_classes=config.num_classes)
+        # self.model = lraspp_mobilenet_v3_large(num_classes=config.num_classes)
+        self.model_name = config.model
+        self.model = get_model(config)
         self.optimizer = optim.AdamW(self.model.parameters(), lr=config.lr)
         self.criterion = nn.CrossEntropyLoss()
         self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
@@ -134,8 +159,8 @@ class Trainer:
         # get the time for now
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        self.save_dir = os.path.join(self.config.save_dir, f"run_{timestamp}")
-        self.log_dir = os.path.join(self.config.log_dir, f"log_{timestamp}")
+        self.save_dir = os.path.join(self.config.save_dir, self.model, f"run_{timestamp}")
+        self.log_dir = os.path.join(self.config.log_dir, self.model, f"log_{timestamp}")
         os.makedirs(self.save_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
 

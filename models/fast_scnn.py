@@ -11,8 +11,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-__all__ = ["FastSCNN", "fast_scnn"]
-
 
 class FastSCNN(nn.Module):
     def __init__(self, num_classes, aux=False, **kwargs):
@@ -264,15 +262,15 @@ class Classifer(nn.Module):
         return x
 
 
-def fast_scnn(num_classes, aux=False, device="cuda", **kwargs):
-    model = FastSCNN(num_classes, aux=aux, **kwargs).to(device)
+def fast_scnn(num_classes: int, aux: bool = False, **kwargs):
+    model = FastSCNN(num_classes, aux=aux, **kwargs)
     return model
 
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     img = torch.randn(2, 3, 480, 640).to(device)
-    model = fast_scnn(num_classes=2, aux=True, device=device)
+    model = fast_scnn(num_classes=2, aux=True).to(device)
     outputs = model(img)
     print(len(outputs))
     print(outputs[0].shape)
