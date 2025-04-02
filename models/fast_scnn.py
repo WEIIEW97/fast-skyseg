@@ -30,6 +30,21 @@ class FastSCNN(nn.Module):
                 nn.Dropout(0.1),
                 nn.Conv2d(32, num_classes, 1),
             )
+        
+        self.init_weights()
+
+    def init_weights(self):
+        for name, module in self.named_modules():
+            if isinstance(module, (nn.Conv2d, nn.Linear)):
+                nn.init.kaiming_normal_(module.weight, mode="fan_out")
+                if not module.bias is None:
+                    nn.init.constant_(module.bias, 0)
+            elif isinstance(module, nn.modules.batchnorm._BatchNorm):
+                if hasattr(module, "last_bn") and module.last_bn:
+                    nn.init.zeros_(module.weight)
+                else:
+                    nn.init.ones_(module.weight)
+                nn.init.zeros_(module.bias)
 
     def forward(self, x):
         size = x.size()[2:]
@@ -159,7 +174,8 @@ class LearningToDownsample(nn.Module):
 
     def __init__(self, dw_channels1=32, dw_channels2=48, out_channels=64, **kwargs):
         super(LearningToDownsample, self).__init__()
-        self.conv = _ConvBNReLU(3, dw_channels1, 3, 2)
+        # LOG: change input channel from 3 to 1
+        self.conv = _ConvBNReLU(1, dw_channels1, 3, 2)
         self.dsconv1 = _DSConv(dw_channels1, dw_channels2, 2)
         self.dsconv2 = _DSConv(dw_channels2, out_channels, 2)
 
@@ -269,7 +285,7 @@ def fast_scnn(num_classes: int, aux: bool = False, **kwargs):
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    img = torch.randn(2, 3, 480, 640).to(device)
+    img = torch.randn(2, 1, 480, 640).to(device)
     model = fast_scnn(num_classes=2, aux=True).to(device)
     outputs = model(img)
     print(len(outputs))

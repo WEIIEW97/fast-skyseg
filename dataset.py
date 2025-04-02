@@ -26,12 +26,13 @@ class ACE20kSkyDataset(Dataset):
             [f for f in os.listdir(self.image_dir) if f.endswith(".jpg")]
         )
 
+        # we will adjust the transfrom from 3-channles grayscale to 1 channel grayscale
         self.image_transform = transforms.Compose(
             [
                 transforms.Resize(img_size),
                 transforms.Grayscale(num_output_channels=1),  # True grayscale
                 transforms.ToTensor(),
-                transforms.Lambda(lambda x: x.repeat(3, 1, 1)),  # [3,H,W]
+                # transforms.Lambda(lambda x: x.repeat(3, 1, 1)),  # [3,H,W]
             ]
         )
 
@@ -47,7 +48,7 @@ class ACE20kSkyDataset(Dataset):
                 [
                     transforms.RandomHorizontalFlip(p=0.5),
                     transforms.RandomVerticalFlip(p=0.5),
-                    transforms.RandomRotation(60),
+                    transforms.RandomRotation(90),
                 ]
             )
         else:

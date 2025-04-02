@@ -35,7 +35,7 @@ def preprocess_image(image_path, fixed_size, device, transpose=False):
             transforms.Resize(fixed_size),
             transforms.Grayscale(num_output_channels=1),  # RGB --> Grayscale
             transforms.ToTensor(),
-            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),  # Convert to 3-channel
+            # transforms.Lambda(lambda x: x.repeat(3, 1, 1)),  # Convert to 3-channel
         ]
     )
     image = Image.open(image_path).convert("RGB")
@@ -74,14 +74,14 @@ def inference(model, image_path, fixed_size, device, transpose=False):
 
 
 if __name__ == "__main__":
-    model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/run_20250328_182433/skyseg_mobilenetv3_lraspp_27_iou_0.9450.pth"
+    model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/lraspp_mobilenet_v3_large/run_20250402_152418/lraspp_mobilenet_v3_large_93_iou_0.9382.pth"
     num_classes = 2
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     fixed_size = (480, 640)
 
     model = load_model(model_path, num_classes, device)
     test_dir = "/home/william/extdisk/data/feynman/FC1/GY2DSH24GV0023/Infrared_L_0_calib/"
-    pred_dir = "/home/william/extdisk/data/feynman/FC1/GY2DSH24GV0023/Infrared_L_0_calib/predictions"
+    pred_dir = "/home/william/extdisk/data/feynman/FC1/GY2DSH24GV0023/Infrared_L_0_calib/predictions_1ch"
     os.makedirs(pred_dir, exist_ok=True)
     image_paths = [
         f for f in os.listdir(test_dir) if os.path.isfile(os.path.join(test_dir, f))

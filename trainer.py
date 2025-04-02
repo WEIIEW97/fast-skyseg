@@ -16,6 +16,7 @@ from models.mobilenetv3_lraspp import lraspp_mobilenet_v3_large
 from models.bisenetv2 import bisenetv2
 from models.fast_scnn import fast_scnn
 from models.u2net import u2net
+from losses import MixSoftmaxCrossEntropyOHEMLoss, MultiScaleCrossEntropyLoss
 from dataset import get_dataloader, get_ddp_dataloader
 from dataclasses import dataclass
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -30,7 +31,7 @@ from torch.distributed import (
 @dataclass
 class SkysegConfig:
     # model
-    model: str = "lraspp_mobilenet_v3_large"
+    model: str = "u2net"
     # device
     device: str = "cuda"
     # ddp
@@ -50,7 +51,6 @@ class SkysegConfig:
     aux: str = "train" # must be in ['train', 'eval', 'pred']
     u2net_type: str = "full" # must be in ['full', 'lite']
     num_epochs: int = 30
-    save_dir: str = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models"
     # scheduler
     # cosine annealing warm restarts
     T_0: int = (10,)
@@ -59,7 +59,7 @@ class SkysegConfig:
     # wandb
     project: str = "skyseg"
     entity: str = "weiiew"
-    run_name: str = "skyseg_mobilenetv3_lraspp"
+    run_name: str = f"skyseg_{model}"
 
 
 # skyseg_config = SkysegConfig()
@@ -96,6 +96,21 @@ def get_model(config: SkysegConfig):
     
     return model
 
+def get_criterion(config: SkysegConfig):
+    model_name = config.model
+
+    if model_name == "lraspp_mobilenet_v3_large":
+        criterion = nn.CrossEntropyLoss()
+    elif model_name == "fast_scnn" or model_name == "bisenetv2":
+        _train_flag = True if config.aux == "train" else False
+        criterion = MixSoftmaxCrossEntropyOHEMLoss(aux=_train_flag, aux_weight=0.4)
+    elif model_name == "u2net":
+        criterion = MultiScaleCrossEntropyLoss()
+    else:
+        raise ValueError(f"unsupported model backend type! : {model_name}")
+    
+    return criterion
+
 class Trainer:
     def __init__(self, config: SkysegConfig):
         self.config = config
@@ -103,7 +118,7 @@ class Trainer:
         self.model_name = config.model
         self.model = get_model(config)
         self.optimizer = optim.AdamW(self.model.parameters(), lr=config.lr)
-        self.criterion = nn.CrossEntropyLoss()
+        self.criterion = get_criterion(config)
         self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
             self.optimizer,
             T_0=config.T_0[0],
@@ -159,8 +174,14 @@ class Trainer:
         # get the time for now
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        self.save_dir = os.path.join(self.config.save_dir, self.model, f"run_{timestamp}")
-        self.log_dir = os.path.join(self.config.log_dir, self.model, f"log_{timestamp}")
+        u2net_model_name = ""
+        if self.model == 'u2net' and self.config.u2net_type == 'full':
+            u2net_model_name = 'u2net_full'
+        if self.model == 'u2net' and self.config.u2net_type == 'lite':
+            u2net_model_name = 'u2net_lite'
+
+        self.save_dir = os.path.join(self.config.save_dir, self.model_name, u2net_model_name, f"run_{timestamp}")
+        self.log_dir = os.path.join(self.config.log_dir, self.model_name, u2net_model_name, f"log_{timestamp}")
         os.makedirs(self.save_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
 
@@ -190,8 +211,21 @@ class Trainer:
         for i, (images, masks) in enumerate(self.train_loader):
             images, masks = images.to(self.device), masks.to(self.device)
             self.optimizer.zero_grad()
-            outputs = self.model(images)
-            loss = self.criterion(outputs, masks)
+            if self.model_name == "lraspp_mobilenet_v3_large":
+                outputs = self.model(images)
+                loss = self.criterion(outputs, masks)
+            elif self.model_name == "fast_scnn":
+                outputs = self.model(images)
+                loss = self.criterion(outputs, masks)
+            elif self.model_name == "bisenetv2":
+                outputs = self.model(images)
+                loss = self.criterion(outputs, masks)
+            elif self.model_name == "u2net":
+                outputs = self.model(images)
+                loss0, loss = self.criterion(outputs, masks)
+            else:
+                raise ValueError(f"unsupported backend! : {self.model_name}")
+  
             loss.backward()
             # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
             self.optimizer.step()
@@ -223,12 +257,26 @@ class Trainer:
         with torch.no_grad():
             for i, (images, masks) in enumerate(self.val_loader):
                 images, masks = images.to(self.device), masks.to(self.device)
-                outputs = self.model(images)
-
-                loss = self.criterion(outputs, masks)
+                if self.model_name == "lraspp_mobilenet_v3_large":
+                    outputs = self.model(images)
+                    loss = self.criterion(outputs, masks)
+                    preds = torch.argmax(outputs, dim=1)
+                elif self.model_name == "fast_scnn":
+                    outputs = self.model(images)
+                    loss = self.criterion(outputs, masks)
+                    preds = torch.argmax(outputs[0], dim=1)
+                elif self.modmodel_nameel == "bisenetv2":
+                    outputs = self.model(images)
+                    loss = self.criterion(outputs, masks)
+                    preds = torch.argmax(outputs[0], dim=1)
+                elif self.model_name == "u2net":
+                    outputs = self.model(images)
+                    loss0, loss = self.criterion(outputs, masks)
+                    preds = torch.argmax(outputs[0], dim=1)
+                else:
+                    raise ValueError(f"unsupported backend! : {self.model_name}")
+                
                 total_loss += loss.item()
-
-                preds = torch.argmax(outputs, dim=1)
                 batch_iou = mIoU(preds, masks, self.config.num_classes)
                 total_iou += batch_iou
 
@@ -263,7 +311,7 @@ class Trainer:
         if self.rank == 0:
             save_path = os.path.join(
                 self.save_dir,
-                f"skyseg_mobilenetv3_lraspp_{self.n_iters}_iou_{self.best_val_iou:.4f}.pth",
+                f"{self.model_name}_{self.n_iters}_iou_{self.best_val_iou:.4f}.pth",
             )
             torch.save(self.model.state_dict(), save_path)
             print(f"Model saved to {save_path}")

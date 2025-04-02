@@ -87,6 +87,20 @@ class U2NET(nn.Module):
         super(U2NET, self).__init__()
         self.out_ch = out_ch
         self._make_layers(cfgs)
+        self.init_weights()
+
+    def init_weights(self):
+        for name, module in self.named_modules():
+            if isinstance(module, (nn.Conv2d, nn.Linear)):
+                nn.init.kaiming_normal_(module.weight, mode="fan_out")
+                if not module.bias is None:
+                    nn.init.constant_(module.bias, 0)
+            elif isinstance(module, nn.modules.batchnorm._BatchNorm):
+                if hasattr(module, "last_bn") and module.last_bn:
+                    nn.init.zeros_(module.weight)
+                else:
+                    nn.init.ones_(module.weight)
+                nn.init.zeros_(module.bias)
 
     def forward(self, x):
         sizes = _size_map(x, self.height)
@@ -117,7 +131,9 @@ class U2NET(nn.Module):
             x = torch.cat(maps, 1)
             x = getattr(self, "outconv")(x)
             maps.insert(0, x)
-            return [torch.sigmoid(x) for x in maps]
+            # LOG: modify here, return raw logits
+            # return [torch.sigmoid(x) for x in maps]
+            return maps
 
         unet(x)
         maps = fuse()
@@ -144,7 +160,8 @@ def U2NET_full():
     full = {
         # cfgs for building RSUs and sides
         # {stage : [name, (height(L), in_ch, mid_ch, out_ch, dilated), side]}
-        "stage1": ["En_1", (7, 3, 32, 64), -1],
+        # LOG: change stage1 input channel from 3 --> 1
+        "stage1": ["En_1", (7, 1, 32, 64), -1],
         "stage2": ["En_2", (6, 64, 32, 128), -1],
         "stage3": ["En_3", (5, 128, 64, 256), -1],
         "stage4": ["En_4", (4, 256, 128, 512), -1],
@@ -163,7 +180,8 @@ def U2NET_lite():
     lite = {
         # cfgs for building RSUs and sides
         # {stage : [name, (height(L), in_ch, mid_ch, out_ch, dilated), side]}
-        "stage1": ["En_1", (7, 3, 16, 64), -1],
+        # LOG: change stage1 input channel from 3 --> 1
+        "stage1": ["En_1", (7, 1, 16, 64), -1],
         "stage2": ["En_2", (6, 64, 16, 64), -1],
         "stage3": ["En_3", (5, 64, 16, 64), -1],
         "stage4": ["En_4", (4, 64, 16, 64), -1],
@@ -187,3 +205,13 @@ def u2net(num_classes: int = 2, model_type: str = "full"):
 
     model = U2NET(cfgs=cfg, out_ch=num_classes)
     return model
+
+
+if __name__ == "__main__":
+    model = u2net()
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
+    data = torch.randn((1, 1, 480, 640)).to(device)
+    outputs = model(data)
+    for out in outputs:
+        print(out.shape)

@@ -118,6 +118,9 @@ def lraspp_mobilenet_v3_large(
 
     # backbone = mobilenet_v3_large(weights=weights_backbone, dilated=True)
     backbone = mobilenet_v3_large(pretrained=True, dilated=True)
+    # hack for the input channles from 3 --> 1
+    backbone.features[0][0] = torch.nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1, bias=False)
+    torch.nn.init.kaiming_normal_(backbone.features[0][0].weight, mode='fan_out')
     model = _lraspp_mobilenetv3(backbone, num_classes)
     return model
 
@@ -125,11 +128,11 @@ def lraspp_mobilenet_v3_large(
 if __name__ == "__main__":
     num_classes = 2
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = lraspp_mobilenet_v3_large(num_classes, device)
+    model = lraspp_mobilenet_v3_large(num_classes)
     model = model.to(device)
     model.eval()
     # model.to(device)
-    dummy_input = torch.randn(1, 3, 480, 640)
+    dummy_input = torch.randn(1, 1, 480, 640)
     dummy_input = dummy_input.to(device)
     with torch.no_grad():
         output = model(dummy_input)

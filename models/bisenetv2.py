@@ -66,8 +66,9 @@ class DetailBranch(nn.Module):
 
     def __init__(self):
         super(DetailBranch, self).__init__()
+        # LOG: change input_channel from 3 to 1
         self.S1 = nn.Sequential(
-            ConvBNReLU(3, 64, 3, stride=2),
+            ConvBNReLU(1, 64, 3, stride=2),
             ConvBNReLU(64, 64, 3, stride=1),
         )
         self.S2 = nn.Sequential(
@@ -92,7 +93,8 @@ class StemBlock(nn.Module):
 
     def __init__(self):
         super(StemBlock, self).__init__()
-        self.conv = ConvBNReLU(3, 16, 3, stride=2)
+        # LOG: change input_channel from 3 to 1
+        self.conv = ConvBNReLU(1, 16, 3, stride=2)
         self.left = nn.Sequential(
             ConvBNReLU(16, 8, 1, stride=1, padding=0),
             ConvBNReLU(8, 16, 3, stride=2),
@@ -384,7 +386,7 @@ class BiSeNetV2(nn.Module):
             logits_aux3 = self.aux3(feat3)
             logits_aux4 = self.aux4(feat4)
             logits_aux5_4 = self.aux5_4(feat5_4)
-            return logits, logits_aux2, logits_aux3, logits_aux4, logits_aux5_4
+            return (logits, logits_aux2, logits_aux3, logits_aux4, logits_aux5_4)
         elif self.aux_mode == "eval":
             return (logits,)
         elif self.aux_mode == "pred":
@@ -394,7 +396,7 @@ class BiSeNetV2(nn.Module):
         else:
             raise NotImplementedError
 
-    def init_weights(self):
+    def init_weights(self, pretrained=False):
         for name, module in self.named_modules():
             if isinstance(module, (nn.Conv2d, nn.Linear)):
                 nn.init.kaiming_normal_(module.weight, mode="fan_out")
@@ -406,7 +408,8 @@ class BiSeNetV2(nn.Module):
                 else:
                     nn.init.ones_(module.weight)
                 nn.init.zeros_(module.bias)
-        self.load_pretrain()
+        if pretrained:
+            self.load_pretrain() # training from scratch, no need for pretrian weights
 
     def load_pretrain(self):
         state = modelzoo.load_url(backbone_url)
@@ -441,7 +444,7 @@ def bisenetv2(num_classes: int, aux_mode: str):
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    x = torch.randn(2, 3, 480, 640).to(device)  # qa: batch size should greater than 1?
+    x = torch.randn(2, 1, 480, 640).to(device)  # qa: batch size should greater than 1?
     model = BiSeNetV2(n_classes=2).to(device)
     outs = model(x)
     for out in outs:
