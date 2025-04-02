@@ -175,9 +175,9 @@ class Trainer:
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
         u2net_model_name = ""
-        if self.model == 'u2net' and self.config.u2net_type == 'full':
+        if self.model_name == 'u2net' and self.config.u2net_type == 'full':
             u2net_model_name = 'u2net_full'
-        if self.model == 'u2net' and self.config.u2net_type == 'lite':
+        elif self.model_name == 'u2net' and self.config.u2net_type == 'lite':
             u2net_model_name = 'u2net_lite'
 
         self.save_dir = os.path.join(self.config.save_dir, self.model_name, u2net_model_name, f"run_{timestamp}")
