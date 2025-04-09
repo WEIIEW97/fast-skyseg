@@ -15,7 +15,7 @@ cmake-build-release
 *.ipynb
 
 # All onnx model file
-**/*.onnx
+**/*.onnx*
 
 # Distribution / packaging
 .Python

@@ -6,7 +6,6 @@ import torch.distributed as dist
 
 import os
 import numpy as np
-import wandb
 import time
 import datetime
 
@@ -27,6 +26,10 @@ from torch.distributed import (
     destroy_process_group,
 )
 
+MODEL_STATE_DICT_NAME = "model_state_dict"
+OPTIMIZER_STATE_DICT_NAME = "optimizer_state_dict"
+SCHEDULER_STATE_DICT_NAME = "scheduler_state_dict"
+EPOCH_NAME = "epoch"
 
 @dataclass
 class SkysegConfig:
@@ -48,23 +51,19 @@ class SkysegConfig:
     # model
     num_classes: int = 2
     lr: float = 1e-4
-    aux: str = "train" # must be in ['train', 'eval', 'pred']
-    u2net_type: str = "full" # must be in ['full', 'lite']
+    aux: str = "train"  # must be in ['train', 'eval', 'pred']
+    u2net_type: str = "full"  # must be in ['full', 'lite']
     num_epochs: int = 30
     # scheduler
     # cosine annealing warm restarts
     T_0: int = (10,)
     T_mult: int = (2,)
     eta_min: float = (1e-5,)
-    # wandb
-    project: str = "skyseg"
-    entity: str = "weiiew"
-    run_name: str = f"skyseg_{model}"
-
+    # continue training
+    continue_training: bool = False
+    ckpt_path: str = ""
 
 # skyseg_config = SkysegConfig()
-
-# wandb.init(project=skyseg_config.project, entity=skyseg_config.entity, name=skyseg_config.run_name)
 
 
 def mIoU(preds: torch.Tensor, targets: torch.Tensor, num_classes: int):
@@ -81,7 +80,7 @@ def mIoU(preds: torch.Tensor, targets: torch.Tensor, num_classes: int):
 
 def get_model(config: SkysegConfig):
     model_name = config.model
-    
+
     if model_name == "lraspp_mobilenet_v3_large":
         model = lraspp_mobilenet_v3_large(num_classes=config.num_classes)
     elif model_name == "fast_scnn":
@@ -93,8 +92,9 @@ def get_model(config: SkysegConfig):
         model = u2net(num_classes=config.num_classes, model_type=config.u2net_type)
     else:
         raise ValueError(f"unsupported model backend type! : {model_name}")
-    
+
     return model
+
 
 def get_criterion(config: SkysegConfig):
     model_name = config.model
@@ -108,8 +108,40 @@ def get_criterion(config: SkysegConfig):
         criterion = MultiScaleCrossEntropyLoss()
     else:
         raise ValueError(f"unsupported model backend type! : {model_name}")
-    
+
     return criterion
+
+
+def continue_training(
+    model: nn.Module,
+    ckpt_path: str,
+    device="cuda",
+    optimizer: nn.Module = None,
+    scheduler: nn.Module = None,
+):
+    checkpoint = torch.load(ckpt_path, map_location=device)
+    # check if checkpoint contains names
+    if checkpoint.get(MODEL_STATE_DICT_NAME) is None:
+        model.load_state_dict(checkpoint, strict=True)
+    else:
+        model.load_state_dict(checkpoint[MODEL_STATE_DICT_NAME], strict=True)
+
+    if (
+        checkpoint.get(OPTIMIZER_STATE_DICT_NAME) is not None
+        and optimizer is not None
+    ):
+        optimizer.load_state_dict(checkpoint[OPTIMIZER_STATE_DICT_NAME])
+
+    if (
+        checkpoint.get(SCHEDULER_STATE_DICT_NAME) is not None
+        and scheduler is not None
+    ):
+        scheduler.load_state_dict(checkpoint[SCHEDULER_STATE_DICT_NAME])
+
+    epoch = checkpoint.get(EPOCH_NAME, 0) + 1 if checkpoint.get(EPOCH_NAME) is not None else 0
+
+    return model, optimizer, scheduler, epoch
+
 
 class Trainer:
     def __init__(self, config: SkysegConfig):
@@ -125,10 +157,10 @@ class Trainer:
             T_mult=config.T_mult[0],
             eta_min=config.eta_min[0],
         )
-        # wandb.watch(self.model, log='all')
         self.best_val_loss = float("inf")
         self.best_val_iou = 0.0
         self.distributed = config.distributed
+        self.continue_training = config.continue_training
         if self.distributed:
             self.rank = int(os.environ["RANK"])
             self.local_rank = int(os.environ["LOCAL_RANK"])
@@ -171,17 +203,34 @@ class Trainer:
             self.model = self.model.to(self.device)
             self.criterion = self.criterion.to(self.device)
 
+        if self.continue_training:
+            ckpt_path = config.ckpt_path
+            if not os.path.exists(ckpt_path):
+                raise ValueError(f"checkpoint path {ckpt_path} does not exist!")
+            self.model, self.optimizer, self.scheduler, self.n_iters = continue_training(
+                self.model,
+                ckpt_path,
+                device=self.device,
+                optimizer=self.optimizer,
+                scheduler=self.scheduler,
+            )
+            print(f"continue training from {ckpt_path} at epoch {self.n_iters}")
+
         # get the time for now
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
         u2net_model_name = ""
-        if self.model_name == 'u2net' and self.config.u2net_type == 'full':
-            u2net_model_name = 'u2net_full'
-        elif self.model_name == 'u2net' and self.config.u2net_type == 'lite':
-            u2net_model_name = 'u2net_lite'
+        if self.model_name == "u2net" and self.config.u2net_type == "full":
+            u2net_model_name = "u2net_full"
+        elif self.model_name == "u2net" and self.config.u2net_type == "lite":
+            u2net_model_name = "u2net_lite"
 
-        self.save_dir = os.path.join(self.config.save_dir, self.model_name, u2net_model_name, f"run_{timestamp}")
-        self.log_dir = os.path.join(self.config.log_dir, self.model_name, u2net_model_name, f"log_{timestamp}")
+        self.save_dir = os.path.join(
+            self.config.save_dir, self.model_name, u2net_model_name, f"run_{timestamp}"
+        )
+        self.log_dir = os.path.join(
+            self.config.log_dir, self.model_name, u2net_model_name, f"log_{timestamp}"
+        )
         os.makedirs(self.save_dir, exist_ok=True)
         os.makedirs(self.log_dir, exist_ok=True)
 
@@ -190,7 +239,7 @@ class Trainer:
     def train(self):
         self.model.train()
         for epoch in tqdm(range(self.config.num_epochs)):
-            self.n_iters = epoch
+            self.n_iters = epoch if not self.continue_training else self.n_iters + 1
             # recording time
             start_time = time.time()
             if self.distributed:
@@ -225,7 +274,7 @@ class Trainer:
                 loss0, loss = self.criterion(outputs, masks)
             else:
                 raise ValueError(f"unsupported backend! : {self.model_name}")
-  
+
             loss.backward()
             # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
             self.optimizer.step()
@@ -234,7 +283,6 @@ class Trainer:
             if self.rank == 0:
                 running_loss += loss.item()
                 if i % 10 == 9:
-                    # wandb.log({"train_loss": running_loss / 10})
                     self.writer.add_scalar(
                         "Train/Loss",
                         running_loss / 10,
@@ -275,7 +323,7 @@ class Trainer:
                     preds = torch.argmax(outputs[0], dim=1)
                 else:
                     raise ValueError(f"unsupported backend! : {self.model_name}")
-                
+
                 total_loss += loss.item()
                 batch_iou = mIoU(preds, masks, self.config.num_classes)
                 total_iou += batch_iou
@@ -296,11 +344,7 @@ class Trainer:
 
         mean_loss = total_loss / len(self.val_loader)
         mean_iou = total_iou / len(self.val_loader)
-        # wandb.log({
-        #     "val_loss": mean_loss,
-        #     "val_iou": mean_iou,
-        #     "lr": self.optimizer.param_groups[0]['lr']
-        # })
+
         if self.rank == 0:
             self.writer.add_scalar("val/loss", mean_loss, epoch)
             self.writer.add_scalar("val/IoU", mean_iou, epoch)
@@ -313,7 +357,14 @@ class Trainer:
                 self.save_dir,
                 f"{self.model_name}_{self.n_iters}_iou_{self.best_val_iou:.4f}.pth",
             )
-            torch.save(self.model.state_dict(), save_path)
+            checkpoint = {
+                MODEL_STATE_DICT_NAME: self.model.state_dict(),
+                OPTIMIZER_STATE_DICT_NAME: self.optimizer.state_dict(),
+                SCHEDULER_STATE_DICT_NAME: self.scheduler.state_dict(),
+                EPOCH_NAME: self.n_iters,
+            }
+            # torch.save(self.model.state_dict(), save_path) # for old runs
+            torch.save(checkpoint, save_path)
             print(f"Model saved to {save_path}")
 
     def close(self):
