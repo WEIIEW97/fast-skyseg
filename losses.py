@@ -1,8 +1,9 @@
-# Code was adapted and modified from https://github.com/Tramac/Fast-SCNN-pytorch/blob/master/utils/loss.py
+# Code was partial adapted and modified from https://github.com/Tramac/Fast-SCNN-pytorch/blob/master/utils/loss.py
 
 """Custom losses."""
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 
 from torch.autograd import Variable
@@ -136,3 +137,53 @@ class MultiScaleCrossEntropyLoss(nn.CrossEntropyLoss):
             losses.append(loss)
 
         return losses[0], sum(losses)
+    
+
+def boundary_loss(pred:torch.Tensor, target:torch.Tensor):
+    """"create edge mask (1 at edges, 0 elsewhere)"""
+    kernel = torch.ones(1,1,3,3).to(pred.device)
+    padded_target = F.pad(target.float(), (1,1,1,1), mode='reflect')
+    edge_mask = F.conv2d(padded_target, kernel, stride=1, padding=0) - target.float()
+    edge_mask = (edge_mask > 0).float()
+
+    ce_loss = F.cross_entropy(pred, target.long(), reduction='none')
+    return (ce_loss*edge_mask).mean()
+
+def gradient_loss(pred_softmax, target):
+    # pred_softmax: [B, C=2, H, W] (after softmax)
+    # target: [B, H, W] (values 0 or 1)
+    
+    # Compute gradients
+    pred_grad_x = torch.abs(pred_softmax[:, 1, :, 1:] - pred_softmax[:, 1, :, :-1])  # Sky class
+    pred_grad_y = torch.abs(pred_softmax[:, 1, 1:, :] - pred_softmax[:, 1, :-1, :])
+    
+    target_grad_x = torch.abs(target[:, :, 1:] - target[:, :, :-1])
+    target_grad_y = torch.abs(target[:, 1:, :] - target[:, :-1, :])
+    
+    grad_loss = F.l1_loss(pred_grad_x, target_grad_x) + F.l1_loss(pred_grad_y, target_grad_y)
+    return grad_loss
+
+
+class MixedEdgeAwareCrossEntropyLoss(nn.Module):
+    def __init__(self, ce_weight=1.0, boundary_weight=0.3, grad_weight=0.2):
+        super().__init__()
+        self.ce_weight = ce_weight
+        self.boundary_weight = boundary_weight
+        self.grad_weight = grad_weight
+
+    def forward(self, pred, target):
+        # pred: Raw logits [B, 2, H, W]
+        # target: Ground truth [B, H, W] (values 0 or 1)
+
+        ce_loss = F.cross_entropy(pred, target.long())
+        bd_loss = boundary_loss(pred, target)
+        pred_softmax = F.softmax(pred, dim=1)
+        grad_loss = gradient_loss(pred_softmax, target)
+
+        # Weighted sum
+        total_loss = (
+            self.ce_weight * ce_loss + 
+            self.boundary_weight * bd_loss + 
+            self.grad_weight * grad_loss
+        )
+        return total_loss

@@ -15,7 +15,7 @@ from models.mobilenetv3_lraspp import lraspp_mobilenet_v3_large
 from models.bisenetv2 import bisenetv2
 from models.fast_scnn import fast_scnn
 from models.u2net import u2net
-from losses import MixSoftmaxCrossEntropyOHEMLoss, MultiScaleCrossEntropyLoss
+from losses import MixSoftmaxCrossEntropyOHEMLoss, MultiScaleCrossEntropyLoss, MixedEdgeAwareCrossEntropyLoss
 from dataset import get_dataloader, get_ddp_dataloader
 from dataclasses import dataclass
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -100,7 +100,8 @@ def get_criterion(config: SkysegConfig):
     model_name = config.model
 
     if model_name == "lraspp_mobilenet_v3_large":
-        criterion = nn.CrossEntropyLoss()
+        # criterion = nn.CrossEntropyLoss()
+        criterion = MixedEdgeAwareCrossEntropyLoss()
     elif model_name == "fast_scnn" or model_name == "bisenetv2":
         _train_flag = True if config.aux == "train" else False
         criterion = MixSoftmaxCrossEntropyOHEMLoss(aux=_train_flag, aux_weight=0.4)
