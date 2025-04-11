@@ -6,10 +6,11 @@ import matplotlib.pyplot as plt
 from torchvision import transforms
 from tqdm import tqdm
 
-from models.mobilenetv3_lraspp import lraspp_mobilenet_v3_large
+from models.mobilenetv3_lraspp import lraspp_mobilenet_v3_large, LRASPP
 from models.fast_scnn import fast_scnn
 from models.bisenetv2 import bisenetv2
 from models.u2net import u2net
+from trainer import MODEL_STATE_DICT_NAME
 
 # Model paths
 model_path_mbv3 = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/lraspp_mobilenet_v3_large/run_20250402_152418/lraspp_mobilenet_v3_large_93_iou_0.9382.pth"
@@ -29,7 +30,10 @@ model_u2net_full = u2net(num_classes=num_classes, model_type='full').to(device)
 
 # Load model weights
 def load_model_weights(model, model_path):
-    state_dict = torch.load(model_path, map_location=device)
+    if isinstance(model, LRASPP):
+        state_dict = torch.load(model_path, map_location=device)[MODEL_STATE_DICT_NAME]
+    else:
+        state_dict = torch.load(model_path, map_location=device)
     
     # Handle DataParallel/DistributedDataParallel saved models
     if all(k.startswith('module.') for k in state_dict.keys()):
@@ -133,7 +137,7 @@ model_factory = {
 
 if __name__ == "__main__":
     test_dir = "/home/william/extdisk/data/motorEV/FC_20250409/Infrared_L_0_calib/"
-    comp_dir = "/home/william/extdisk/data/motorEV/FC_20250409/cmp"
+    comp_dir = "/home/william/extdisk/data/motorEV/FC_20250409/cmp_v2"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     os.makedirs(comp_dir, exist_ok=True)
     image_paths = [

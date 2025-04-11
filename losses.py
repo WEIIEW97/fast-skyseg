@@ -141,13 +141,15 @@ class MultiScaleCrossEntropyLoss(nn.CrossEntropyLoss):
 
 def boundary_loss(pred:torch.Tensor, target:torch.Tensor):
     """"create edge mask (1 at edges, 0 elsewhere)"""
+    if target.dim() == 3:
+        target = target.unsqueeze(1) # [B, 1, H, W]
     kernel = torch.ones(1,1,3,3).to(pred.device)
     padded_target = F.pad(target.float(), (1,1,1,1), mode='reflect')
     edge_mask = F.conv2d(padded_target, kernel, stride=1, padding=0) - target.float()
     edge_mask = (edge_mask > 0).float()
 
-    ce_loss = F.cross_entropy(pred, target.long(), reduction='none')
-    return (ce_loss*edge_mask).mean()
+    ce_loss = F.cross_entropy(pred, target.squeeze(1).long(), reduction='none')
+    return (ce_loss*edge_mask.squeeze(1)).mean()
 
 def gradient_loss(pred_softmax, target):
     # pred_softmax: [B, C=2, H, W] (after softmax)

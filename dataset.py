@@ -165,8 +165,8 @@ class ACE20kSkyDatasetV2(Dataset):
         split="train",
         img_size=(480, 640),
         sky_label=3,
-        mu=None,
-        sigma=None,
+        mu=0.4817,
+        sigma=0.2591,
     ):
         self.root_dir = root_dir
         self.split = split
@@ -197,6 +197,7 @@ class ACE20kSkyDatasetV2(Dataset):
         self.image_transform = A.Compose(
             [
                 A.Resize(img_size[0], img_size[1], interpolation=cv2.INTER_LINEAR),
+                A.ToFloat(),
                 ToTensorV2(),
             ]
         )
@@ -224,16 +225,18 @@ class ACE20kSkyDatasetV2(Dataset):
                     A.CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.2),
                     A.RandomBrightnessContrast(brightness_limit=(-0.4, 0.4), p=0.4),
                     A.GaussNoise(p=0.2),
-                    A.RandomGamma(gamma_limit=(70, 130), p=0.3),
-                    A.Sharpen(alpha=(0.1, 0.3), lightness=1.0, p=0.2),
+                    # A.RandomGamma(gamma_limit=(70, 130), eps=1e-7, p=0.3), # TODO: need to figure it out why gamma not working
+                    A.Sharpen(alpha=(0.1, 0.3), lightness=(0.5, 1.0), p=0.2),
                     A.ElasticTransform(
                         alpha=1,
                         sigma=25,
-                        alpha_affine=10,
                         p=0.3,  # Warping (helps generalize edges)
                     ),
                 ]
             )
+
+    def __len__(self):
+        return len(self.image_files)
 
     def __getitem__(self, idx):
         image_name = self.image_files[idx]

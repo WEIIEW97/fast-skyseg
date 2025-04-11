@@ -12,6 +12,8 @@ from models.u2net import u2net
 from torchvision import transforms
 from tqdm import tqdm
 
+from trainer import MODEL_STATE_DICT_NAME
+
 
 def load_model(model_path, num_classes, device):
     """Load the trained model (handles both DDP and single-GPU saved models)."""
@@ -79,7 +81,7 @@ def inference(model, image_path, fixed_size, device, transpose=False):
     return pred
 
 if __name__ == "__main__":
-    model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/lraspp_mobilenet_v3_large/run_20250402_152418/lraspp_mobilenet_v3_large_93_iou_0.9382.pth"
+    model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/lraspp_mobilenet_v3_large/run_20250411_124619/lraspp_mobilenet_v3_large_254_iou_0.9229.pth"
     # model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/fast_scnn/run_20250402_160813/fast_scnn_159_iou_0.9037.pth"
     # model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/bisenetv2/run_20250402_161803/bisenetv2_299_iou_0.9123.pth"
     # model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/u2net/run_20250402_165359/u2net_418_iou_0.9322.pth"
@@ -90,7 +92,7 @@ if __name__ == "__main__":
     # model = u2net(num_classes=num_classes, model_type='full')
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
-    state_dict = torch.load(model_path, map_location='cuda')
+    state_dict = torch.load(model_path, map_location='cuda')[MODEL_STATE_DICT_NAME]
 
     if all(k.startswith('module.') for k in state_dict.keys()):
         state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
@@ -103,7 +105,7 @@ if __name__ == "__main__":
 
     # model = load_model(model_path, num_classes, device)
     test_dir = "/home/william/extdisk/data/motorEV/FC_20250409/Infrared_L_0_calib/"
-    pred_dir = "/home/william/extdisk/data/motorEV/FC_20250409/mbv3_pred"
+    pred_dir = "/home/william/extdisk/data/motorEV/FC_20250409/mbv3_pred_fusion_loss"
     os.makedirs(pred_dir, exist_ok=True)
     image_paths = [
         f for f in os.listdir(test_dir) if os.path.isfile(os.path.join(test_dir, f))

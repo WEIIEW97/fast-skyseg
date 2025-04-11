@@ -314,7 +314,7 @@ class Trainer:
                     outputs = self.model(images)
                     loss = self.criterion(outputs, masks)
                     preds = torch.argmax(outputs[0], dim=1)
-                elif self.modmodel_nameel == "bisenetv2":
+                elif self.model_name == "bisenetv2":
                     outputs = self.model(images)
                     loss = self.criterion(outputs, masks)
                     preds = torch.argmax(outputs[0], dim=1)
