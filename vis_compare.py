@@ -8,15 +8,16 @@ from tqdm import tqdm
 
 from models.mobilenetv3_lraspp import lraspp_mobilenet_v3_large, LRASPP
 from models.fast_scnn import fast_scnn
-from models.bisenetv2 import bisenetv2
-from models.u2net import u2net
+from models.bisenetv2 import bisenetv2, BiSeNetV2
+from models.u2net import u2net, U2NET
 from trainer import MODEL_STATE_DICT_NAME
 
 # Model paths
-model_path_mbv3 = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/lraspp_mobilenet_v3_large/run_20250402_152418/lraspp_mobilenet_v3_large_93_iou_0.9382.pth"
+model_path_mbv3 = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/lraspp_mobilenet_v3_large/run_20250411_124619/lraspp_mobilenet_v3_large_254_iou_0.9229.pth"
 model_path_fast_scnn = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/fast_scnn/run_20250402_160813/fast_scnn_159_iou_0.9037.pth"
-model_path_bisenetv2 = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/bisenetv2/run_20250402_161803/bisenetv2_299_iou_0.9123.pth"
+model_path_bisenetv2 = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/bisenetv2/run_20250411_152202/bisenetv2_349_iou_0.8394.pth"
 model_path_u2net_full = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/u2net/run_20250402_165359/u2net_418_iou_0.9322.pth"
+model_path_u2net_lite = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/u2net/u2net_lite/run_20250411_152516/u2net_417_iou_0.8900.pth"
 
 # Model initialization
 num_classes = 2
@@ -27,11 +28,15 @@ model_fast_scnn = fast_scnn(num_classes=num_classes, aux=True).to(device)
 model_mbv3 = lraspp_mobilenet_v3_large(num_classes=num_classes).to(device)
 model_bisenetv2 = bisenetv2(num_classes=num_classes, aux_mode='train').to(device)
 model_u2net_full = u2net(num_classes=num_classes, model_type='full').to(device)
+model_u2net_lite = u2net(num_classes=num_classes, model_type='lite').to(device)
 
 # Load model weights
-def load_model_weights(model, model_path):
-    if isinstance(model, LRASPP):
-        state_dict = torch.load(model_path, map_location=device)[MODEL_STATE_DICT_NAME]
+def load_model_weights(model, model_path, u2net_type='lite'):
+    if isinstance(model, (LRASPP, BiSeNetV2, U2NET)):
+        if u2net_type == 'lite':
+            state_dict = torch.load(model_path, map_location=device)[MODEL_STATE_DICT_NAME]
+        else:
+            state_dict = torch.load(model_path, map_location=device)
     else:
         state_dict = torch.load(model_path, map_location=device)
     
@@ -46,7 +51,8 @@ def load_model_weights(model, model_path):
 model_fast_scnn = load_model_weights(model_fast_scnn, model_path_fast_scnn)
 model_mbv3 = load_model_weights(model_mbv3, model_path_mbv3)
 model_bisenetv2 = load_model_weights(model_bisenetv2, model_path_bisenetv2)
-model_u2net_full = load_model_weights(model_u2net_full, model_path_u2net_full)
+model_u2net_full = load_model_weights(model_u2net_full, model_path_u2net_full, u2net_type='full')
+model_u2net_lite = load_model_weights(model_u2net_lite, model_path_u2net_lite, u2net_type='lite')
 
 def preprocess_image(image_path, fixed_size, device, transpose=False):
     """Preprocess the input image for inference."""
@@ -132,12 +138,13 @@ model_factory = {
     "MobileNetV3": model_mbv3,
     "FastSCNN": model_fast_scnn,
     "BiSeNetV2": model_bisenetv2,
-    "U2Net": model_u2net_full
+    "U2Net_full": model_u2net_full,
+    "U2Net_lite": model_u2net_lite,
 }
 
 if __name__ == "__main__":
     test_dir = "/home/william/extdisk/data/motorEV/FC_20250409/Infrared_L_0_calib/"
-    comp_dir = "/home/william/extdisk/data/motorEV/FC_20250409/cmp_v2"
+    comp_dir = "/home/william/extdisk/data/motorEV/FC_20250409/cmp_v3"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     os.makedirs(comp_dir, exist_ok=True)
     image_paths = [
