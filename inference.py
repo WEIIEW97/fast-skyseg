@@ -41,6 +41,7 @@ def preprocess_image(image_path, fixed_size, device, transpose=False):
             transforms.Resize(fixed_size),
             transforms.Grayscale(num_output_channels=1),  # RGB --> Grayscale
             transforms.ToTensor(),
+            transforms.Normalize(mean=[0.4817], std=[0.2686]),
             # transforms.Lambda(lambda x: x.repeat(3, 1, 1)),  # Convert to 3-channel
         ]
     )
@@ -51,6 +52,7 @@ def preprocess_image(image_path, fixed_size, device, transpose=False):
     else:
         original_size = image.size
     image = transform(image).unsqueeze(0).to(device)  # Add batch dim and move to device
+    # normalize
     return image, original_size
 
 
@@ -81,7 +83,7 @@ def inference(model, image_path, fixed_size, device, transpose=False):
     return pred
 
 if __name__ == "__main__":
-    model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/lraspp_mobilenet_v3_large/run_20250411_124619/lraspp_mobilenet_v3_large_254_iou_0.9229.pth"
+    model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/lraspp_mobilenet_v3_large/run_20250421_153716/lraspp_mobilenet_v3_large_292_iou_0.9189.pth"
     # model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/fast_scnn/run_20250402_160813/fast_scnn_159_iou_0.9037.pth"
     # model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/bisenetv2/run_20250402_161803/bisenetv2_299_iou_0.9123.pth"
     # model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/u2net/run_20250402_165359/u2net_418_iou_0.9322.pth"
@@ -104,8 +106,8 @@ if __name__ == "__main__":
     fixed_size = (480, 640)
 
     # model = load_model(model_path, num_classes, device)
-    test_dir = "/home/william/extdisk/data/motorEV/FC_20250409/Infrared_L_0_calib/"
-    pred_dir = "/home/william/extdisk/data/motorEV/FC_20250409/mbv3_pred_fusion_loss"
+    test_dir = "/home/william/extdisk/data/motorEV/FC_20250425/Infrared_L_0_calib/"
+    pred_dir = "/home/william/extdisk/data/motorEV/FC_20250425/mask"
     os.makedirs(pred_dir, exist_ok=True)
     image_paths = [
         f for f in os.listdir(test_dir) if os.path.isfile(os.path.join(test_dir, f))

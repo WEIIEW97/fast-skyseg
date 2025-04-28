@@ -21,7 +21,7 @@ class ModelWrapper(nn.Module):
         return self.model(x)[0]
 
 
-def onnx_export(model, input_tensor, output_path, wrapper=False, fixed_batch_size=None):
+def onnx_export(model, input_tensor, output_path, wrapper=False, fixed_batch_size=None, opset_version=17):
     """
     Export the model to ONNX format.
 
@@ -42,7 +42,7 @@ def onnx_export(model, input_tensor, output_path, wrapper=False, fixed_batch_siz
         input_tensor,
         output_path,
         export_params=True,
-        opset_version=17,
+        opset_version=opset_version,   # for internal compatibility
         do_constant_folding=True,
         input_names=["input"],
         output_names=["output"],
@@ -96,7 +96,8 @@ if __name__ == "__main__":
     model.eval()
 
     dummy_input = torch.randn(1, 1, 480, 640)
-    output_path = "onnx/mbv3_1ch_fp32.onnx"
-    onnx_export(model, dummy_input, output_path, wrapper=True, fixed_batch_size=1)
-    output_simp_path = "onnx/mbv3_1ch_fp32_simp.onnx"
+    opset_version = 17
+    output_path = f"onnx/mbv3_1ch_fp32_opsetv{opset_version}.onnx"
+    onnx_export(model, dummy_input, output_path, wrapper=False, fixed_batch_size=1, opset_version=opset_version)
+    output_simp_path = f"onnx/mbv3_1ch_fp32_opsetv{opset_version}_simp.onnx"
     onnx_simplify(output_path, output_simp_path)

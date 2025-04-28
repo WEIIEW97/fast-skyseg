@@ -1,52 +1,56 @@
 from pathlib import Path
-import copy
 import gc
 
-import cv2 as cv
+import cv2
 import numpy as np
-import onnxruntime
+import onnxruntime as ort
+
+from tqdm import tqdm
+
 
 def run_inference(onnx_session, input_size, image):
     # Pre process:Resize, BGR->RGB, Transpose, PyTorch standardization, float32 cast
-    temp_image = copy.deepcopy(image)
-    resize_image = cv.resize(temp_image, dsize=(input_size[0], input_size[1]))
-    x = cv.cvtColor(resize_image, cv.COLOR_BGR2RGB)
-    x = np.array(x, dtype=np.float32)
-    mean = [0.485, 0.456, 0.406]
-    std = [0.229, 0.224, 0.225]
-    x = (x / 255 - mean) / std
-    x = x.transpose(2, 0, 1)
-    x = x.reshape(-1, 3, input_size[0], input_size[1]).astype('float32')
+    x = cv2.resize(image, dsize=(input_size[0], input_size[1]))
+    x = x.astype(np.float32) / 255
+    mean = 0.4817
+    std = 0.2686
+    x = (x - mean) / std
+
+    x = np.expand_dims(x, axis=0)
+    x = np.expand_dims(x, axis=0)
 
     # Inference
     input_name = onnx_session.get_inputs()[0].name
     output_name = onnx_session.get_outputs()[0].name
     onnx_result = onnx_session.run([output_name], {input_name: x})
+    
+    # post process
+    logits = onnx_result[0]
+    pred = np.argmax(logits, axis=1)
+    pred = np.squeeze(pred, axis=0)
+    binary_mask = (pred == 1).astype(np.uint8)  # Assuming class 1 is the target class
+    return binary_mask
 
-    # Post process
-    onnx_result = np.array(onnx_result).squeeze()
-    min_value = np.min(onnx_result)
-    max_value = np.max(onnx_result)
-    onnx_result = (onnx_result - min_value) / (max_value - min_value)
-    onnx_result *= 255
-    onnx_result = onnx_result.astype('uint8')
-
-    return onnx_result
 
 if __name__ == "__main__":
-    data_path = Path("/home/william/extdisk/data/FC1/GY2ASH24GV0024/L")
-    save_path = Path("/home/william/extdisk/data/FC1/GY2ASH24GV0024/seg")
-    save_path.mkdir(exist_ok=True)
-    onnx_session = onnxruntime.InferenceSession("/home/william/Downloads/skyseg.onnx")
-    image_path = data_path.glob("*.png")
-    for p in image_path:
-        image = cv.imread(str(p))
-        image_name = p.stem
-        ori_h, ori_w = image.shape[:2]
-        if(image.shape[0] >= 640 and image.shape[1] >= 640):
-            image = cv.pyrDown(image)
-        result_map = run_inference(onnx_session,[320,320],image)
-        result_resize = cv.resize(result_map, (ori_w, ori_h), interpolation=cv.INTER_LINEAR)
-        cv.imwrite(str(save_path / (image_name + ".png")), result_resize)
+    test_dir = Path("/home/william/extdisk/data/motorEV/FC_20250425/Infrared_L_0_calib")
+    out_dir = Path("/home/william/extdisk/data/motorEV/FC_20250425/mask_onnx_int8")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    onnx_path = "onnx/mbv3_1ch_fp32_opsetv17_simp_int8.onnx"
+    available_providers = ort.get_available_providers()
+    print("Available Execution Providers:", available_providers)
+    for image_path in tqdm(test_dir.glob("*.png")):
+        image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+        # transpose
+        image = np.rot90(image, k=1)
+        onnx_session = ort.InferenceSession(
+            onnx_path, providers=["CPUExecutionProvider"]
+        )
+        # Run inference
+        mask = run_inference(onnx_session, (640, 480), image)
+        mask = mask * 255
+        # tranpose back
+        mask = np.rot90(mask, k=3)
+        cv2.imwrite(out_dir / image_path.name, mask)
 
-    print("done!")
+    gc.collect()
