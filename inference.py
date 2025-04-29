@@ -106,8 +106,8 @@ if __name__ == "__main__":
     fixed_size = (480, 640)
 
     # model = load_model(model_path, num_classes, device)
-    test_dir = "/home/william/extdisk/data/motorEV/FC_20250425/Infrared_L_0_calib/"
-    pred_dir = "/home/william/extdisk/data/motorEV/FC_20250425/mask"
+    test_dir = "/home/william/extdisk/data/motorEV/FC_20250415/Infrared_L_0_calib/"
+    pred_dir = "/home/william/extdisk/data/motorEV/FC_20250415/mask_torch"
     os.makedirs(pred_dir, exist_ok=True)
     image_paths = [
         f for f in os.listdir(test_dir) if os.path.isfile(os.path.join(test_dir, f))

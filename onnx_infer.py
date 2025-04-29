@@ -33,10 +33,10 @@ def run_inference(onnx_session, input_size, image):
 
 
 if __name__ == "__main__":
-    test_dir = Path("/home/william/extdisk/data/motorEV/FC_20250425/Infrared_L_0_calib")
-    out_dir = Path("/home/william/extdisk/data/motorEV/FC_20250425/mask_onnx_int8")
+    test_dir = Path("/home/william/extdisk/data/motorEV/FC_20250415/Infrared_L_0_calib")
+    out_dir = Path("/home/william/extdisk/data/motorEV/FC_20250415/mask_onnx_fp32")
     out_dir.mkdir(parents=True, exist_ok=True)
-    onnx_path = "onnx/mbv3_1ch_fp32_opsetv17_simp_int8.onnx"
+    onnx_path = "onnx/mbv3_1ch_fp32_opsetv17_simp.onnx"
     available_providers = ort.get_available_providers()
     print("Available Execution Providers:", available_providers)
     for image_path in tqdm(test_dir.glob("*.png")):

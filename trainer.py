@@ -10,11 +10,13 @@ import time
 import datetime
 
 from torch.utils.tensorboard import SummaryWriter
+from functools import partial
 from tqdm import tqdm
 from models.mobilenetv3_lraspp import lraspp_mobilenet_v3_large
 from models.bisenetv2 import bisenetv2
 from models.fast_scnn import fast_scnn
 from models.u2net import u2net
+from models._layers import ScaledLeakyRelu6
 from losses import MixSoftmaxCrossEntropyOHEMLoss, MultiScaleCrossEntropyLoss, MixedEdgeAwareCrossEntropyLoss
 from dataset import get_dataloader, get_ddp_dataloader
 from dataclasses import dataclass
@@ -50,6 +52,7 @@ class SkysegConfig:
     pin_memory: bool = True
     # model
     num_classes: int = 2
+    act_func: str = "sigmoid" # must be in ["sigmoid", "leaky_relu6"]
     lr: float = 1e-4
     aux: str = "train"  # must be in ['train', 'eval', 'pred']
     u2net_type: str = "full"  # must be in ['full', 'lite']
@@ -82,7 +85,20 @@ def get_model(config: SkysegConfig):
     model_name = config.model
 
     if model_name == "lraspp_mobilenet_v3_large":
-        model = lraspp_mobilenet_v3_large(num_classes=config.num_classes)
+        if config.act_func is None:
+            model = lraspp_mobilenet_v3_large(num_classes=config.num_classes)
+        else:
+            if config.act_func == "sigmoid":
+                print(f"substituting hardsigmoid function to {config.act_func}")
+                act_func = partial(nn.Sigmoid)
+            elif config.act_func == "leaky_relu6":
+                print(f"substituting hardsigmoid function to {config.act_func}")
+                act_func = partial(ScaledLeakyRelu6, neg_k=0.01)
+            else:
+                raise ValueError(
+                    f"unsupported activation function! : {config.act_func}"
+                )
+            model = lraspp_mobilenet_v3_large(num_classes=config.num_classes, act_func=act_func)
     elif model_name == "fast_scnn":
         _train_flag = True if config.aux == "train" else False
         model = fast_scnn(num_classes=config.num_classes, aux=_train_flag)
