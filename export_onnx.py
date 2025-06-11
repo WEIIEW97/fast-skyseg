@@ -11,12 +11,9 @@ from trainer import MODEL_STATE_DICT_NAME
 
 from onnxsim import simplify
 
-<<<<<<< Updated upstream
-=======
 from functools import partial
 from models._layers import ScaledLeakyRelu6
 
->>>>>>> Stashed changes
 class ModelWrapper(nn.Module):
     def __init__(self, original_model):
         super(ModelWrapper, self).__init__()
