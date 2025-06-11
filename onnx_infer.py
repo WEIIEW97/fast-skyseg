@@ -9,7 +9,6 @@ from tqdm import tqdm
 
 
 def run_inference(onnx_session, input_size, image):
-    # Pre process:Resize, BGR->RGB, Transpose, PyTorch standardization, float32 cast
     x = cv2.resize(image, dsize=(input_size[0], input_size[1]))
     x = x.astype(np.float32) / 255
     mean = 0.4817
@@ -36,7 +35,7 @@ if __name__ == "__main__":
     test_dir = Path("/home/william/extdisk/data/motorEV/FC_20250415/Infrared_L_0_calib")
     out_dir = Path("/home/william/extdisk/data/motorEV/FC_20250415/mask_onnx_fp32")
     out_dir.mkdir(parents=True, exist_ok=True)
-    onnx_path = "onnx/mbv3_1ch_fp32_opsetv17_simp.onnx"
+    onnx_path = "onnx/mbv3_1ch_fp32_opsetv11_simp.onnx"
     available_providers = ort.get_available_providers()
     print("Available Execution Providers:", available_providers)
     for image_path in tqdm(test_dir.glob("*.png")):

@@ -11,6 +11,12 @@ from trainer import MODEL_STATE_DICT_NAME
 
 from onnxsim import simplify
 
+<<<<<<< Updated upstream
+=======
+from functools import partial
+from models._layers import ScaledLeakyRelu6
+
+>>>>>>> Stashed changes
 class ModelWrapper(nn.Module):
     def __init__(self, original_model):
         super(ModelWrapper, self).__init__()
@@ -77,11 +83,12 @@ def onnx_simplify(onnx_path, output_path):
 if __name__ == "__main__":
     # Example usage
     num_classes = 2
-    model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/lraspp_mobilenet_v3_large/run_20250411_124619/lraspp_mobilenet_v3_large_254_iou_0.9229.pth"
+    model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/lraspp_mobilenet_v3_large/run_20250421_153716/lraspp_mobilenet_v3_large_292_iou_0.9189.pth"
     # model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/fast_scnn/run_20250402_160813/fast_scnn_159_iou_0.9037.pth"
     # model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/u2net/run_20250402_165359/u2net_418_iou_0.9322.pth"
     # model_path = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models/bisenetv2/run_20250402_161803/bisenetv2_299_iou_0.9123.pth"
-    model = lraspp_mobilenet_v3_large(num_classes=2)
+    
+    model = lraspp_mobilenet_v3_large(num_classes=2, act_func=None)
     # model = fast_scnn(num_classes=2, aux=True)
     # model = bisenetv2(num_classes=num_classes, aux_mode='train')
     # model = u2net(num_classes=num_classes, model_type='full')
@@ -95,8 +102,9 @@ if __name__ == "__main__":
     model.eval()
 
     dummy_input = torch.randn(1, 1, 480, 640)
-    opset_version = 17
-    output_path = f"onnx/mbv3_1ch_fp32_opsetv{opset_version}.onnx"
+    opset_version = 11
+    act_fun = None
+    output_path = f"onnx/mbv3_1ch_fp32_opsetv{opset_version}_{act_fun}.onnx"
     onnx_export(model, dummy_input, output_path, wrapper=False, fixed_batch_size=1, opset_version=opset_version)
-    output_simp_path = f"onnx/mbv3_1ch_fp32_opsetv{opset_version}_simp.onnx"
+    output_simp_path = f"onnx/mbv3_1ch_fp32_opsetv{opset_version}_{act_fun}_simp.onnx"
     onnx_simplify(output_path, output_simp_path)
