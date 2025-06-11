@@ -11,7 +11,6 @@ from trainer import MODEL_STATE_DICT_NAME
 
 from onnxsim import simplify
 
-
 class ModelWrapper(nn.Module):
     def __init__(self, original_model):
         super(ModelWrapper, self).__init__()

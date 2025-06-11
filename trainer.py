@@ -12,7 +12,7 @@ import datetime
 from torch.utils.tensorboard import SummaryWriter
 from functools import partial
 from tqdm import tqdm
-from models.mobilenetv3_lraspp import lraspp_mobilenet_v3_large
+from models.mobilenetv3_lraspp import lraspp_mobilenet_v3_large, lraspp_mobilenet_v3_small
 from models.bisenetv2 import bisenetv2
 from models.fast_scnn import fast_scnn
 from models.u2net import u2net
@@ -43,16 +43,16 @@ class SkysegConfig:
     distributed: bool = True
     backend: str = "nccl"
     # data
-    data_dir: str = "/home/william/extdisk/data/ACE20k/ACE20k_sky"
-    save_dir: str = "/home/william/extdisk/data/ACE20k/ACE20k_sky/models"
-    log_dir: str = "/home/william/extdisk/data/ACE20k/ACE20k_sky/logs"
+    data_dir: str = "/algdata03/wei.wei/data/ACE20k_sky"
+    save_dir: str = "/algdata03/wei.wei/data/ACE20k_sky/models"
+    log_dir: str = "/algdata03/wei.wei/data/ACE20k_sky/logs"
     batch_size: int = 16
     img_size: tuple = (480, 640)
     num_workers: int = 8
     pin_memory: bool = True
     # model
     num_classes: int = 2
-    act_func: str = "sigmoid" # must be in ["sigmoid", "leaky_relu6"]
+    act_func: str = None # must be in ["sigmoid", "leaky_relu6", None]
     lr: float = 1e-4
     aux: str = "train"  # must be in ['train', 'eval', 'pred']
     u2net_type: str = "full"  # must be in ['full', 'lite']
@@ -64,7 +64,7 @@ class SkysegConfig:
     eta_min: float = (1e-5,)
     # continue training
     continue_training: bool = False
-    ckpt_path: str = ""
+    ckpt_path: str = "/algdata03/wei.wei/data/ACE20k_sky/models/lraspp_mobilenet_v3_large/run_20250411_104258/lraspp_mobilenet_v3_large_7_iou_0.8480.pth"
 
 # skyseg_config = SkysegConfig()
 
@@ -89,16 +89,31 @@ def get_model(config: SkysegConfig):
             model = lraspp_mobilenet_v3_large(num_classes=config.num_classes)
         else:
             if config.act_func == "sigmoid":
-                print(f"substituting hardsigmoid function to {config.act_func}")
+                print(f"substituting hardsigmoid with sigmoid")
                 act_func = partial(nn.Sigmoid)
             elif config.act_func == "leaky_relu6":
-                print(f"substituting hardsigmoid function to {config.act_func}")
+                print(f"substituting hardsigmoid with leaky_relu6")
                 act_func = partial(ScaledLeakyRelu6, neg_k=0.01)
             else:
                 raise ValueError(
                     f"unsupported activation function! : {config.act_func}"
                 )
             model = lraspp_mobilenet_v3_large(num_classes=config.num_classes, act_func=act_func)
+    elif model_name == "lraspp_mobilenet_v3_small":
+        if config.act_func is None:
+            model = lraspp_mobilenet_v3_small(num_classes=config.num_classes)
+        else:
+            if config.act_func == "sigmoid":
+                print(f"substituting hardsigmoid with sigmoid")
+                act_func = partial(nn.Sigmoid)
+            elif config.act_func == "leaky_relu6":
+                print(f"substituting hardsigmoid with leaky_relu6")
+                act_func = partial(ScaledLeakyRelu6, neg_k=0.01)
+            else:
+                raise ValueError(
+                    f"unsupported activation function! : {config.act_func}"
+                )
+            model = lraspp_mobilenet_v3_small(num_classes=config.num_classes, act_func=act_func)
     elif model_name == "fast_scnn":
         _train_flag = True if config.aux == "train" else False
         model = fast_scnn(num_classes=config.num_classes, aux=_train_flag)
@@ -115,7 +130,7 @@ def get_model(config: SkysegConfig):
 def get_criterion(config: SkysegConfig):
     model_name = config.model
 
-    if model_name == "lraspp_mobilenet_v3_large":
+    if model_name.startswith("lraspp_mobilenet_v3_"):
         # criterion = nn.CrossEntropyLoss()
         criterion = MixedEdgeAwareCrossEntropyLoss()
     elif model_name == "fast_scnn" or model_name == "bisenetv2":
@@ -163,7 +178,6 @@ def continue_training(
 class Trainer:
     def __init__(self, config: SkysegConfig):
         self.config = config
-        # self.model = lraspp_mobilenet_v3_large(num_classes=config.num_classes)
         self.model_name = config.model
         self.model = get_model(config)
         self.optimizer = optim.AdamW(self.model.parameters(), lr=config.lr)
@@ -277,7 +291,7 @@ class Trainer:
         for i, (images, masks) in enumerate(self.train_loader):
             images, masks = images.to(self.device), masks.to(self.device)
             self.optimizer.zero_grad()
-            if self.model_name == "lraspp_mobilenet_v3_large":
+            if self.model_name.startswith("lraspp_mobilenet_v3_"):
                 outputs = self.model(images)
                 loss = self.criterion(outputs, masks)
             elif self.model_name == "fast_scnn":
@@ -322,7 +336,7 @@ class Trainer:
         with torch.no_grad():
             for i, (images, masks) in enumerate(self.val_loader):
                 images, masks = images.to(self.device), masks.to(self.device)
-                if self.model_name == "lraspp_mobilenet_v3_large":
+                if self.model_name.startswith("lraspp_mobilenet_v3_"):
                     outputs = self.model(images)
                     loss = self.criterion(outputs, masks)
                     preds = torch.argmax(outputs, dim=1)

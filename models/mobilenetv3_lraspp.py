@@ -6,7 +6,7 @@ from typing import Dict, Callable, Optional
 from torch import nn, Tensor
 from torch.nn import functional as F
 from torchvision.models._utils import IntermediateLayerGetter
-from torchvision.models.mobilenetv3 import MobileNetV3, mobilenet_v3_large
+from torchvision.models.mobilenetv3 import MobileNetV3, mobilenet_v3_large, mobilenet_v3_small
 
 import torch
 
@@ -127,6 +127,30 @@ def lraspp_mobilenet_v3_large(
         elif act_func.func == ScaledLeakyRelu6:
             replace_modules(backbone, nn.Hardsigmoid, ScaledLeakyRelu6)
         # hack for the input channles from 3 --> 1
+    backbone.features[0][0] = torch.nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1, bias=False)
+    torch.nn.init.kaiming_normal_(backbone.features[0][0].weight, mode='fan_out')
+    model = _lraspp_mobilenetv3(backbone, num_classes)
+    return model
+
+def lraspp_mobilenet_v3_small(
+    num_classes: int = 2,
+    act_func: Optional[Callable[..., nn.Module]] = None,
+) -> LRASPP:
+    """Constructs a Lite R-ASPP Network model with a MobileNetV3-Small backbone from
+    `Searching for MobileNetV3 <https://arxiv.org/abs/1905.02244>`_ paper.
+
+    Args:
+        num_classes (int, optional): number of output classes of the model (including the background).
+        act_func (Optional[Callable[..., nn.Module]], optional): activation function to use.
+            Defaults to None.
+    """
+    backbone = mobilenet_v3_small(pretrained=True, dilated=True)
+    if act_func is not None:
+        if act_func.func == nn.Sigmoid:
+            replace_modules(backbone, nn.Hardsigmoid, nn.Sigmoid)
+        elif act_func.func == ScaledLeakyRelu6:
+            replace_modules(backbone, nn.Hardsigmoid, ScaledLeakyRelu6)
+    # hack for the input channles from 3 --> 1
     backbone.features[0][0] = torch.nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=1, bias=False)
     torch.nn.init.kaiming_normal_(backbone.features[0][0].weight, mode='fan_out')
     model = _lraspp_mobilenetv3(backbone, num_classes)

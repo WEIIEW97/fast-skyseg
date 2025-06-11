@@ -14,26 +14,32 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     model_type = args.model_type
-    assert model_type in ["lraspp_mobilenet_v3_large", "fast_scnn", "bisenetv2", "u2net_full", "u2net_lite"]
+    assert model_type in ["lraspp_mobilenet_v3_large", "lraspp_mobilenet_v3_small", "fast_scnn", "bisenetv2", "u2net_full", "u2net_lite"]
     skyseg_config = trainer.SkysegConfig()
     if model_type == "lraspp_mobilenet_v3_large":
         skyseg_config.model = "lraspp_mobilenet_v3_large"
         skyseg_config.num_epochs = args.num_epochs
         if args.continue_training:
             skyseg_config.continue_training = True
-        skyseg_config.ckpt_path = args.ckpt_path
+            skyseg_config.ckpt_path = args.ckpt_path
+    elif model_type == "lraspp_mobilenet_v3_small":
+        skyseg_config.model = "lraspp_mobilenet_v3_small"
+        skyseg_config.num_epochs = args.num_epochs
+        if args.continue_training:
+            skyseg_config.continue_training = True
+            skyseg_config.ckpt_path = args.ckpt_path
     elif model_type == "fast_scnn":
         skyseg_config.model = "fast_scnn"
         skyseg_config.num_epochs = args.num_epochs
         if args.continue_training:
             skyseg_config.continue_training = True
-        skyseg_config.ckpt_path = args.ckpt_path
+            skyseg_config.ckpt_path = args.ckpt_path
     elif model_type == "bisenetv2":
         skyseg_config.model = "bisenetv2"
         skyseg_config.num_epochs = args.num_epochs
         if args.continue_training:
             skyseg_config.continue_training = True
-        skyseg_config.ckpt_path = args.ckpt_path
+            skyseg_config.ckpt_path = args.ckpt_path
     elif model_type == "u2net_full":
         skyseg_config.model = "u2net"
         skyseg_config.u2net_type = "full"
@@ -41,7 +47,7 @@ if __name__ == "__main__":
         skyseg_config.num_epochs = args.num_epochs
         if args.continue_training:
             skyseg_config.continue_training = True
-        skyseg_config.ckpt_path = args.ckpt_path
+            skyseg_config.ckpt_path = args.ckpt_path
     elif model_type == "u2net_lite":
         skyseg_config.model = "u2net"
         skyseg_config.u2net_type = "lite"
@@ -49,7 +55,7 @@ if __name__ == "__main__":
         skyseg_config.num_epochs = args.num_epochs
         if args.continue_training:
             skyseg_config.continue_training = True
-        skyseg_config.ckpt_path = args.ckpt_path
+            skyseg_config.ckpt_path = args.ckpt_path
     else:
         raise ValueError(f"unsupported model backbone type! : {model_type}")
     print(f"*"*50)
@@ -62,4 +68,3 @@ if __name__ == "__main__":
         trainer.train()
     finally:
         trainer.close()
-
